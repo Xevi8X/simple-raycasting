@@ -7,12 +7,41 @@
 #include "camera.hpp"
 #include "obj.hpp"
 #include "bmp.hpp"
+#include "light.hpp"
 #include<tuple>
 
+constexpr double ka = 0.1;
+constexpr double kd = 0.5;
+constexpr double ks = 0.4;
+constexpr double m = 30.0;
 
-Render::Render(Camera cam, std::vector<Sphere>& objects):
-camera{cam}, objs{objects}
+Render::Render(Camera cam, std::vector<Sphere>& objects, std::vector<Light>& lights):
+camera{cam}, objs{objects}, lights{lights}
 {
+}
+
+double myCos(Eigen::Vector4d a,Eigen::Vector4d b, bool cut = true)
+{
+    double  cos = a.dot(b) / a.norm() / b.norm();
+    if (cut && cos < 0.0) cos = 0.0;
+    return cos;
+}
+
+
+Color calcColor(Eigen::Vector4d sectionPoint,Eigen::Vector4d cameraPos, Sphere* nearestSphere,std::vector<Light>&  lights)
+{
+    Color c = ka*nearestSphere->getColor();
+    Eigen::Vector4d N = nearestSphere->normalVector(sectionPoint);
+    for (auto light: lights)
+    {
+        Eigen::Vector4d L = (light.pos - sectionPoint).normalized();
+        Eigen::Vector4d R = 2 * myCos(N, L, false) * N - L;
+        double first = kd * myCos(N, L, true);
+        Eigen::Vector4d obs = (cameraPos - sectionPoint).normalized();
+        double second = ks * std::pow(myCos(obs, R, true), m);
+        c = c + (first+second)*light.color*nearestSphere->getColor();
+    }
+    return c;
 }
 
 void Render::renderImage(int width, int height, std::string path)
@@ -54,13 +83,12 @@ void Render::renderImage(int width, int height, std::string path)
                     sectionPoint = res.second.value();    
                 }
             }
-            else{
-            }
         }
 
         if(nearestSphere != nullptr)
         {
-            img.setPixel(i,j,Pixel(nearestSphere->getColor()));
+            Color c = calcColor(sectionPoint,camera.pos,nearestSphere, lights);
+            img.setPixel(i,j,Pixel(c));
         }
 
     }
