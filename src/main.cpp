@@ -84,13 +84,14 @@ int main(int argc, char** argv)
 	{
 		fs::remove_all("show");
     	if (!fs::create_directory("show")) std::cerr << "Can not create comunication folder";
-		for (size_t i = 0; i < 20; i++)
+		for (size_t i = 0; i < 60; i++)
 		{
-			double fi = 2.0 +i / 5.0;
+			double fi = i / 10.0;
 			cam.pos = Eigen::Vector4d(10.0*cos(fi),10.0*sin(fi),5.0,1.0);
 			cam.screenCenter = Eigen::Vector4d(9.0*cos(fi),9.0*sin(fi),4.5,1.0);
 			render.renderImage(param.mode,param.width,param.height,"show/"+ std::to_string(i) + ".bmp");
 		}
+		system("ffmpeg -f image2 -i ./show/%d.bmp ./show/out.mov");
 	}
 	else
 	{
