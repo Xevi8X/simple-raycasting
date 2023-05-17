@@ -38,13 +38,16 @@ private:
                                    Eigen::Vector4d       cameraPos,
                                    Sphere*               nearestSphere,
                                    std::vector< Light >& lights);
-
+    inline static Color
+    calcColor(Eigen::Vector4d sectionPoint, Eigen::Vector4d cameraPos, Plane* plane, std::vector< Light >& lights);
     inline void renderImageCPU(int width, int height, std::string path);
     inline void renderImageTBB(int width, int height, std::string path);
 
     Camera&                camera;
     std::vector< Sphere >& objs;
     std::vector< Light >&  lights;
+
+    const Color skyColor = {135, 206, 235};
 };
 
 void Render::renderImage(RenderMode mode, int width, int height, std::string path)
@@ -78,7 +81,7 @@ Color Render::calcColor(Eigen::Vector4d       sectionPoint,
                         Sphere*               nearestSphere,
                         std::vector< Light >& lights)
 {
-    Color           c = ka * nearestSphere->getColor();
+    Color           c = ka * nearestSphere->getColor(sectionPoint);
     Eigen::Vector4d N = nearestSphere->normalVector(sectionPoint);
     for (auto light : lights)
     {
@@ -87,13 +90,35 @@ Color Render::calcColor(Eigen::Vector4d       sectionPoint,
         double          first  = kd * myCos(N, L, true);
         Eigen::Vector4d obs    = (cameraPos - sectionPoint).normalized();
         double          second = ks * std::pow(myCos(obs, R, true), m);
-        c                      = c + (first + second) * light.color * nearestSphere->getColor();
+        c                      = c + (first + second) * light.color * nearestSphere->getColor(sectionPoint);
+    }
+    return c;
+}
+
+Color Render::calcColor(Eigen::Vector4d       sectionPoint,
+                        Eigen::Vector4d       cameraPos,
+                        Plane*                plane,
+                        std::vector< Light >& lights)
+{
+    //std::cout << sectionPoint.transpose() << std::endl;
+    Color           c = ka * plane->getColor(sectionPoint);
+    Eigen::Vector4d N = plane->normalVector(sectionPoint);
+    for (auto light : lights)
+    {
+        Eigen::Vector4d L      = (light.pos - sectionPoint).normalized();
+        Eigen::Vector4d R      = 2 * myCos(N, L, false) * N - L;
+        double          first  = kd * myCos(N, L, true);
+        Eigen::Vector4d obs    = (cameraPos - sectionPoint).normalized();
+        double          second = ks * std::pow(myCos(obs, R, true), m);
+        c                      = c + (first + second) * light.color * plane->getColor(sectionPoint);
     }
     return c;
 }
 
 void Render::renderImageCPU(int width, int height, std::string path)
 {
+    Plane plane;
+
     Image img(width, height);
 
     Eigen::Vector4d screenUp, screenRight;
@@ -138,6 +163,20 @@ void Render::renderImageCPU(int width, int height, std::string path)
                 Color c = calcColor(sectionPoint, camera.pos, nearestSphere, lights);
                 img.setPixel(i, j, Pixel(c));
             }
+            else
+            {
+                auto res = plane.intersection(ray);
+                // std::cout << res.second.has_value() << std::endl;
+                if (res.second.has_value())
+                {
+                    Color c = calcColor(res.second.value(), camera.pos, &plane, lights);
+                    img.setPixel(i, j, Pixel(c));
+                }
+                else
+                {
+                    img.setPixel(i, j, skyColor);
+                }
+            }
         }
 
     img.saveToBmp(path);
@@ -145,6 +184,8 @@ void Render::renderImageCPU(int width, int height, std::string path)
 
 void Render::renderImageTBB(int width, int height, std::string path)
 {
+    Plane plane;
+
     Image img(width, height);
 
     Eigen::Vector4d screenUp, screenRight;
@@ -190,6 +231,19 @@ void Render::renderImageTBB(int width, int height, std::string path)
                     {
                         Color c = calcColor(sectionPoint, camera.pos, nearestSphere, lights);
                         img.setPixel(i, j, Pixel(c));
+                    }
+                    else
+                    {
+                        auto res = plane.intersection(ray);
+                        if (res.second.has_value())
+                        {
+                            Color c = calcColor(res.second.value(), camera.pos, &plane, lights);
+                            img.setPixel(i, j, Pixel(c));
+                        }
+                        else
+                        {
+                            img.setPixel(i, j, skyColor);
+                        }
                     }
                 }
             });

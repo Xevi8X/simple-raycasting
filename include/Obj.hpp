@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>
 #include <optional>
+#include <iostream>
 
 class Sphere
 {
@@ -13,7 +14,7 @@ public:
     {}
     inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray);
     inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point);
-    inline Color                                                 getColor() { return color_; };
+    inline Color                                                 getColor(Eigen::Vector4d point) { return color_; };
 
 private:
     Eigen::Vector4d center_;
@@ -49,3 +50,43 @@ Eigen::Vector4d Sphere::normalVector(Eigen::Vector4d point)
 {
     return (point - center_).normalized();
 }
+
+class Plane
+{
+public:
+    inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray);
+    inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point);
+    inline Color                                                 getColor(Eigen::Vector4d point);
+
+private:
+    Eigen::Vector4d center_;
+    double          radius_;
+    Color           color_;
+};
+
+std::pair< double, std::optional< Eigen::Vector4d > > Plane::intersection(Ray ray)
+{
+    Eigen::Vector4d p = ray.point;
+    Eigen::Vector4d v = ray.dir;
+    if (p.z() < 0.0 || v.z() >= 0)
+        return std::make_pair(0.0, std::nullopt);
+
+    double scale = p.z() / (-v.z());
+    return std::make_pair(scale * p.z(), p + scale * v);
+}
+
+Eigen::Vector4d Plane::normalVector(Eigen::Vector4d point)
+{
+    return Eigen::Vector4d(0, 0, 1, 0);
+}
+
+Color Plane::getColor(Eigen::Vector4d point)
+{
+    int x = ((int) abs(point.x())) / 10;
+    int y = ((int) abs(point.y())) / 10;
+
+    int sum = (x % 2 + y % 2) % 2;
+
+
+    return sum > 0 ? Color(255,0,255) : Color(0,255,255);
+};
