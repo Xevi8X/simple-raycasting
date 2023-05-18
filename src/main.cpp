@@ -58,7 +58,7 @@ void generateSpheres(Obj3D** objs, size_t noOfSpheres)
 {
     std::mt19937                             mt(2023);
     std::uniform_real_distribution< double > r(0.5, 5);
-    std::uniform_real_distribution< double > coord(-50, 50);
+    std::uniform_real_distribution< double > coord(-80, 80);
     std::uniform_int_distribution< uint8_t > color(0, 255);
 
     auto randR = [&r, &mt]() {
@@ -86,8 +86,8 @@ int main(int argc, char** argv)
 
     Params param = parseArgs(argc, argv);
 
-    Eigen::Vector4d pos(-60.0, -60.0, 30.0, 1.0);
-    Eigen::Vector4d screen(-50.0, -50.0, 22.0, 1.0);
+    Eigen::Vector4d pos(-100.0, -100.0, 30.0, 1.0);
+    Eigen::Vector4d screen(-90.0, -90.0, 25.0, 1.0);
     Eigen::Vector4d up(0.0, 0.0, 1.0, 0.0);
 
     Camera cam(pos, screen, up, 80.0);

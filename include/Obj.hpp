@@ -74,13 +74,18 @@ private:
 
 std::pair< double, std::optional< Eigen::Vector4d > > Plane::intersection(Ray ray)
 {
+    constexpr double mapSize = 150.0;
     Eigen::Vector4d p = ray.point;
     Eigen::Vector4d v = ray.dir;
     if (p.z() < 0.0 || v.z() >= 0)
-        return std::make_pair(0.0, std::nullopt);
+        return std::make_pair(-1.0, std::nullopt);
 
     double scale = p.z() / (-v.z());
-    return std::make_pair(scale * p.z(), p + scale * v);
+
+    Eigen::Vector4d intersectionPoint = p + scale * v;
+    if(intersectionPoint.maxCoeff() > mapSize || intersectionPoint.minCoeff() < -mapSize)
+        return std::make_pair(-1.0, std::nullopt);
+    return std::make_pair(scale * p.z(), intersectionPoint);
 }
 
 Eigen::Vector4d Plane::normalVector(Eigen::Vector4d point)
