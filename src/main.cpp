@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <random>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -53,33 +54,60 @@ Params parseArgs(int argc, char** argv)
     return p;
 }
 
+void generateSpheres(Obj3D** objs, size_t noOfSpheres)
+{
+    std::mt19937                             mt(2023);
+    std::uniform_real_distribution< double > r(0.5, 5);
+    std::uniform_real_distribution< double > coord(-50, 50);
+    std::uniform_int_distribution< uint8_t > color(0, 255);
+
+    auto randR = [&r, &mt]() {
+        return r(mt);
+    };
+    auto randCoord = [&coord, &mt]() {
+        return coord(mt);
+    };
+    auto randColor = [&color, &mt]() {
+        return Color{color(mt), color(mt), color(mt)};
+    };
+
+    for (size_t i = 0; i < noOfSpheres; i++)
+    {
+        double          R = randR();
+        Eigen::Vector4d center(randCoord(), randCoord(), R, 1);
+        objs[i] = new Sphere(center, R, randColor());
+    }
+}
+
 int main(int argc, char** argv)
 {
+    constexpr size_t noOfSpheres = 256;
+    constexpr size_t noOfPlanes  = 1;
+
     Params param = parseArgs(argc, argv);
 
-    Eigen::Vector4d pos(-10.0, -10.0, 8.0, 1.0);
-    Eigen::Vector4d screen(-8, -8.0, 7.0, 1.0);
+    Eigen::Vector4d pos(-60.0, -60.0, 30.0, 1.0);
+    Eigen::Vector4d screen(-50.0, -50.0, 22.0, 1.0);
     Eigen::Vector4d up(0.0, 0.0, 1.0, 0.0);
 
     Camera cam(pos, screen, up, 80.0);
 
-    std::vector< Sphere > objs;
-    Eigen::Vector4d       center(0.0, 2, 2.0, 1.0);
-    objs.push_back(Sphere(center, 2.0, Color(255, 0, 0)));
-    Eigen::Vector4d center2(0.0, -2, 2.0, 1.0);
-    objs.push_back(Sphere(center2, 2.0, Color(0, 255, 0)));
-    Eigen::Vector4d center3(0.0, 0.0, 3.0, 1.0);
-    objs.push_back(Sphere(center3, 2.0, Color(0, 0, 255)));
-
     std::vector< Light > lights;
-    Eigen::Vector4d      l1(0.0, 0.0, 50.0, 1.0);
+    Eigen::Vector4d      l1(-50.0, -50.0, 50.0, 1.0);
     lights.push_back(Light(l1, Color(255, 255, 255)));
-    Eigen::Vector4d l2(-50.0, 0.0, 50.0, 1.0);
+    Eigen::Vector4d      l2(50.0, -50.0, 50.0, 1.0);
     lights.push_back(Light(l2, Color(255, 255, 255)));
-    Eigen::Vector4d l3(.0, -50, 50.0, 1.0);
+    Eigen::Vector4d      l3(-50.0, 50.0, 50.0, 1.0);
     lights.push_back(Light(l3, Color(255, 255, 255)));
+    Eigen::Vector4d      l4(50.0, 50.0, 50.0, 1.0);
+    lights.push_back(Light(l4, Color(255, 255, 255)));
 
-    Render render(cam, objs, lights);
+    Obj3D* objs[noOfSpheres + noOfPlanes];
+    generateSpheres(objs, noOfSpheres);
+    objs[noOfSpheres] = new Plane();
+    std::cout << "Allocation done" << std::endl;
+
+    Render render(cam, lights, objs, noOfPlanes + noOfSpheres);
 
     if (param.presentation)
     {
@@ -93,10 +121,17 @@ int main(int argc, char** argv)
             cam.screenCenter = Eigen::Vector4d(9.0 * cos(fi), 9.0 * sin(fi), 4.5, 1.0);
             render.renderImage(param.mode, param.width, param.height, "show/" + std::to_string(i) + ".bmp");
         }
-		system("ffmpeg -f image2 -i ./show/%d.bmp ./show/out.mov");
+        system("ffmpeg -f image2 -i ./show/%d.bmp ./show/out.mov");
     }
     else
     {
         render.renderImage(param.mode, param.width, param.height, param.path);
+    }
+
+    std::cout << "Free mem" << std::endl;
+
+    for (size_t i = 0; i < noOfSpheres + noOfPlanes; i++)
+    {
+        delete (objs[i]);
     }
 }

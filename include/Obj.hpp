@@ -3,18 +3,26 @@
 #include "Structs.hpp"
 
 #include <Eigen/Dense>
-#include <optional>
 #include <iostream>
+#include <optional>
 
-class Sphere
+class Obj3D
+{
+public:
+    virtual std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray)               = 0;
+    virtual Eigen::Vector4d                                       normalVector(Eigen::Vector4d point) = 0;
+    virtual Color                                                 getColor(Eigen::Vector4d point)     = 0;
+};
+
+class Sphere : public Obj3D
 {
 public:
     Sphere(const Eigen::Vector4d& center, double radius, const Color& color)
         : center_{center}, radius_{radius}, color_{color}
     {}
-    inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray);
-    inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point);
-    inline Color                                                 getColor(Eigen::Vector4d point) { return color_; };
+    inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray) override;
+    inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point) override;
+    inline Color getColor(Eigen::Vector4d point) override { return color_; };
 
 private:
     Eigen::Vector4d center_;
@@ -33,7 +41,7 @@ std::pair< double, std::optional< Eigen::Vector4d > > Sphere::intersection(Ray r
     double c     = diff.squaredNorm() - radius_ * radius_;
     double delta = b * b - 4 * a * c;
     if (delta < 0.0)
-        return std::make_pair(0.0, std::nullopt);
+        return std::make_pair(-1.0, std::nullopt);
 
     double delta_sqrt = std::sqrt(delta);
     double s1         = (-b - delta_sqrt) / (2 * a);
@@ -41,7 +49,7 @@ std::pair< double, std::optional< Eigen::Vector4d > > Sphere::intersection(Ray r
 
     double s = std::min(s1, s2);
     if (s < 0.0)
-        return std::make_pair(0.0, std::nullopt);
+        return std::make_pair(-1.0, std::nullopt);
 
     return std::make_pair(s, p + s * v);
 }
@@ -51,17 +59,17 @@ Eigen::Vector4d Sphere::normalVector(Eigen::Vector4d point)
     return (point - center_).normalized();
 }
 
-class Plane
+class Plane : public Obj3D
 {
 public:
-    inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray);
-    inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point);
-    inline Color                                                 getColor(Eigen::Vector4d point);
+    inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray) override;
+    inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point) override;
+    inline Color                                                 getColor(Eigen::Vector4d point) override;
 
 private:
     Eigen::Vector4d center_;
     double          radius_;
-    Color           color_;
+    Color           color[2] = {Color(252, 204, 116), Color(87, 58, 46)};
 };
 
 std::pair< double, std::optional< Eigen::Vector4d > > Plane::intersection(Ray ray)
@@ -82,11 +90,9 @@ Eigen::Vector4d Plane::normalVector(Eigen::Vector4d point)
 
 Color Plane::getColor(Eigen::Vector4d point)
 {
-    int x = ((int) abs(point.x())) / 10;
-    int y = ((int) abs(point.y())) / 10;
-
-    int sum = (x % 2 + y % 2) % 2;
-
-
-    return sum > 0 ? Color(255,0,255) : Color(0,255,255);
+    constexpr int scale = 10;
+    int           x     = static_cast< int >(point.x());
+    int           y     = static_cast< int >(point.y());
+    int           res   = (x >= 0 ? x : x - scale) / scale + (y > 0 ? y : y - scale) / scale;
+    return res % 2 == 0 ? color[0] : color[1];
 };
