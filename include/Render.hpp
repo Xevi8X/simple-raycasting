@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <chrono>
 
 enum struct RenderMode
 {
@@ -69,7 +70,7 @@ void Render::renderImage(RenderMode mode, int width, int height, std::string pat
         break;
 
     case RenderMode::SIMD:
-        renderImageSIMDSpheres<256,4>(width, height, path);
+        renderImageSIMDSpheres<256,8>(width, height, path);
         break;
 
     default:
@@ -135,6 +136,7 @@ void Render::renderImageCPU(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
+    auto t_start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < width; i++)
         for (int j = 0; j < height; j++)
         {
@@ -169,6 +171,8 @@ void Render::renderImageCPU(int width, int height, std::string path)
                 img.setPixel(i, j, skyColor);
             }
         }
+    auto t_end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time CPU: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
     img.saveToBmp(path);
 }
@@ -183,6 +187,7 @@ void Render::renderImageTBB(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
+    auto t_start = std::chrono::high_resolution_clock::now();
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
             tbb::parallel_for(tbb::blocked_range< int >(0, height), [&](tbb::blocked_range< int > r2) {
@@ -221,6 +226,8 @@ void Render::renderImageTBB(int width, int height, std::string path)
                 }
             });
     });
+    auto t_end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time TBB: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
     img.saveToBmp(path);
 }
@@ -241,7 +248,29 @@ std::tuple<Eigen::Matrix<double,4,noOfSpheres>,Eigen::Vector<double,noOfSpheres>
 template<int batch_size>
 inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersection(Ray ray,Eigen::Matrix<double,4,batch_size>& centers, Eigen::Vector<double,batch_size>& radius2 )
 {
+    centers.colwise() -= ray.point;     //centers is -diff
+    Eigen::Vector<double,batch_size> a;
+    double a_scalar = ray.dir.squaredNorm();
+    a.setConstant(a_scalar); 
+    Eigen::Vector<double,batch_size> c = centers.colwise().squaredNorm().transpose() - radius2;
+    Eigen::Vector<double,batch_size> b = -2* (centers.transpose()*ray.dir);
+    Eigen::Vector<double,batch_size> delta = b.cwiseProduct(b) - 4 * a.cwiseProduct(c);
 
+    Eigen::Vector<double,batch_size> mask;
+    for (size_t i = 0; i < batch_size; i++)
+    {
+        mask(i) = delta(i) < 0 ? std::numeric_limits< double >::max() : 0;
+    }
+
+    Eigen::Vector<double,batch_size> delta_sqrt = delta.cwiseAbs().cwiseSqrt();
+    Eigen::Vector<double,batch_size> s1 = (-b - delta_sqrt) / (2* a_scalar);
+    Eigen::Vector<double,batch_size> s2 = (-b + delta_sqrt) / (2* a_scalar);
+    Eigen::Vector<double,batch_size> s = s1.cwiseMin(s2);
+    s = s.cwiseMax(mask);
+
+    Eigen::Index minIndex;
+    double min = s.minCoeff(&minIndex);
+    return {min, ray.point + s(minIndex) * ray.dir,minIndex};
 }
 
 template<int noOfSpheres, int batch_size>
@@ -255,9 +284,11 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
+    auto t_start = std::chrono::high_resolution_clock::now();
     // Eigen::Matrix<double,4,noOfSpheres> centers;
     // Eigen::Vector<double,noOfSpheres> radius2;
     auto && [centers, radius2] = prepareSpheresMatrix<noOfSpheres>(objs);
+
 
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
@@ -277,18 +308,14 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
                         Eigen::Matrix<double,4,batch_size> local_centers = centers.block(0,k*batch_size,4,batch_size);
                         Eigen::Vector<double,batch_size> local_radius2 = radius2.segment(k*batch_size,batch_size);
                         auto res = batchIntersection(ray,local_centers,local_radius2);
-                        if (std::get<1>(res).has_value())
+                        //std::cout << std::to_string(std::get<0>(res)) + "\n";
+                        if (std::get<0>(res) < z_buffor)
                         {
-                            if (std::get<0>(res) < z_buffor)
-                            {
-                                z_buffor        = std::get<0>(res);
-                                nearestObjIndex = batch_size * k + std::get<2>(res);
-                                sectionPoint    = std::get<1>(res).value();
-                            }
+                            z_buffor        = std::get<0>(res);
+                            nearestObjIndex = batch_size * k + std::get<2>(res);
+                            sectionPoint    = std::get<1>(res).value();
                         }
-
-                    }
-                    
+                    } 
                     // BATCH SPLITING END
                     if (nearestObjIndex >= 0)
                     {
@@ -302,6 +329,8 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
                 }
             });
     });
+    auto t_end = std::chrono::high_resolution_clock::now();
+    std::cout << "Time SIMD: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
     img.saveToBmp(path);
 }

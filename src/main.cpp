@@ -28,6 +28,7 @@ Params parseArgs(int argc, char** argv)
         "f,file", "Output file name", cxxopts::value< std::string >()->default_value("scene.bmp"))(
         "c,cpu", "CPU mode", cxxopts::value< bool >()->default_value("false"))(
         "t,tbb", "TBB mode", cxxopts::value< bool >()->default_value("false"))(
+        "m,simd", "SIMD mode", cxxopts::value< bool >()->default_value("false"))(
         "p,show", "Generate 20 bmp from rotating camera", cxxopts::value< bool >()->default_value("false"))(
         "h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -50,6 +51,10 @@ Params parseArgs(int argc, char** argv)
     if (result["tbb"].as< bool >())
     {
         p.mode = RenderMode::TBB;
+    }
+    if (result["simd"].as< bool >())
+    {
+        p.mode = RenderMode::SIMD;
     }
     return p;
 }
@@ -82,7 +87,7 @@ void generateSpheres(Obj3D** objs, size_t noOfSpheres)
 int main(int argc, char** argv)
 {
     constexpr size_t noOfSpheres = 256;
-    constexpr size_t noOfPlanes  = 1;
+    constexpr size_t noOfPlanes  = 0;
 
     Params param = parseArgs(argc, argv);
 
