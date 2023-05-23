@@ -23,6 +23,8 @@ public:
     inline std::pair< double, std::optional< Eigen::Vector4d > > intersection(Ray ray) override;
     inline Eigen::Vector4d                                       normalVector(Eigen::Vector4d point) override;
     inline Color getColor(Eigen::Vector4d point) override { return color_; };
+    inline Eigen::Vector4d getCenter() {return center_;}
+    inline double getRadius() {return radius_;}
 
 private:
     Eigen::Vector4d center_;

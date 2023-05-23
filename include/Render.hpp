@@ -12,11 +12,13 @@
 #include <numbers>
 #include <string>
 #include <vector>
+#include <tuple>
 
 enum struct RenderMode
 {
     CPU,
-    TBB
+    TBB,
+    SIMD
 };
 
 class Render
@@ -43,6 +45,9 @@ private:
     inline void renderImageCPU(int width, int height, std::string path);
     inline void renderImageTBB(int width, int height, std::string path);
 
+    template<int noOfSpheres, int batch_size>
+    inline void renderImageSIMDSpheres(int width, int height, std::string path);
+
     Camera&               camera;
     Obj3D**               objs;
     size_t                noOfObjs;
@@ -61,6 +66,10 @@ void Render::renderImage(RenderMode mode, int width, int height, std::string pat
 
     case RenderMode::TBB:
         renderImageTBB(width, height, path);
+        break;
+
+    case RenderMode::SIMD:
+        renderImageSIMDSpheres<256,4>(width, height, path);
         break;
 
     default:
@@ -200,6 +209,87 @@ void Render::renderImageTBB(int width, int height, std::string path)
                             }
                         }
                     }
+                    if (nearestObjIndex >= 0)
+                    {
+                        Color c = calcColor(sectionPoint, camera.pos, objs[nearestObjIndex], lights);
+                        img.setPixel(i, j, Pixel(c));
+                    }
+                    else
+                    {
+                        img.setPixel(i, j, skyColor);
+                    }
+                }
+            });
+    });
+
+    img.saveToBmp(path);
+}
+
+template<int noOfSpheres>
+std::tuple<Eigen::Matrix<double,4,noOfSpheres>,Eigen::Vector<double,noOfSpheres>> prepareSpheresMatrix(Obj3D **objs)
+{
+    Eigen::Matrix<double,4,noOfSpheres> centers;
+    Eigen::Vector<double,noOfSpheres> radius2;
+    for (size_t i = 0; i < noOfSpheres; i++)
+    {
+        radius2(i) = std::pow((dynamic_cast<Sphere*>(objs[i]))->getRadius(),2);
+        centers.col(i) = dynamic_cast<Sphere*>(objs[i])->getCenter();
+    }
+    return {centers,radius2};
+}
+
+template<int batch_size>
+inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersection(Ray ray,Eigen::Matrix<double,4,batch_size>& centers, Eigen::Vector<double,batch_size>& radius2 )
+{
+
+}
+
+template<int noOfSpheres, int batch_size>
+void Render::renderImageSIMDSpheres(int width, int height, std::string path)
+{
+    Image           img(width, height);
+    Eigen::Vector4d screenUp, screenRight;
+    Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
+    screenRight                = centralRay.cross3(camera.up).normalized();
+    screenUp                   = screenRight.cross3(centralRay).normalized();
+    double fov                 = camera.fov * (std::numbers::pi / 180);
+    double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
+
+    // Eigen::Matrix<double,4,noOfSpheres> centers;
+    // Eigen::Vector<double,noOfSpheres> radius2;
+    auto && [centers, radius2] = prepareSpheresMatrix<noOfSpheres>(objs);
+
+    tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
+        for (int i = r.begin(); i < r.end(); ++i)
+            tbb::parallel_for(tbb::blocked_range< int >(0, height), [&](tbb::blocked_range< int > r2) {
+                for (int j = r2.begin(); j < r2.end(); ++j)
+                {
+                    int             x             = i - width / 2;
+                    int             y             = j - height / 2;
+                    Eigen::Vector4d pointOnScreen = camera.screenCenter + x * step * screenRight + y * step * screenUp;
+                    Ray             ray(camera.pos, (pointOnScreen - camera.pos).normalized());
+                    double          z_buffor        = std::numeric_limits< double >::max();
+                    int             nearestObjIndex = -1;
+                    Eigen::Vector4d sectionPoint;
+                    // BATCH SPLITING BEGIN
+                    for (int k = 0; k < noOfSpheres/batch_size; k++)
+                    {
+                        Eigen::Matrix<double,4,batch_size> local_centers = centers.block(0,k*batch_size,4,batch_size);
+                        Eigen::Vector<double,batch_size> local_radius2 = radius2.segment(k*batch_size,batch_size);
+                        auto res = batchIntersection(ray,local_centers,local_radius2);
+                        if (std::get<1>(res).has_value())
+                        {
+                            if (std::get<0>(res) < z_buffor)
+                            {
+                                z_buffor        = std::get<0>(res);
+                                nearestObjIndex = batch_size * k + std::get<2>(res);
+                                sectionPoint    = std::get<1>(res).value();
+                            }
+                        }
+
+                    }
+                    
+                    // BATCH SPLITING END
                     if (nearestObjIndex >= 0)
                     {
                         Color c = calcColor(sectionPoint, camera.pos, objs[nearestObjIndex], lights);
