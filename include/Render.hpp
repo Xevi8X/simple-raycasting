@@ -118,20 +118,13 @@ Color Render::calcColor(Eigen::Vector4d       sectionPoint,
 
 void Render::renderImageCPU(int width, int height, std::string path)
 {
-    Plane plane;
-
-    Image img(width, height);
-
+    Image           img(width, height);
     Eigen::Vector4d screenUp, screenRight;
-
     Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
-
-    screenRight = centralRay.cross3(camera.up).normalized();
-    screenUp    = screenRight.cross3(centralRay).normalized();
-    // std::cout << screenRight << "\n" << screenUp << "\n";
-
-    double fov  = camera.fov * (std::numbers::pi / 180);
-    double step = std::tan(fov / 2) * centralRay.norm() / (width / 2);
+    screenRight                = centralRay.cross3(camera.up).normalized();
+    screenUp                   = screenRight.cross3(centralRay).normalized();
+    double fov                 = camera.fov * (std::numbers::pi / 180);
+    double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
     for (int i = 0; i < width; i++)
         for (int j = 0; j < height; j++)
@@ -173,20 +166,13 @@ void Render::renderImageCPU(int width, int height, std::string path)
 
 void Render::renderImageTBB(int width, int height, std::string path)
 {
-    Plane plane;
-
-    Image img(width, height);
-
+    Image           img(width, height);
     Eigen::Vector4d screenUp, screenRight;
-
     Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
-
-    screenRight = centralRay.cross3(camera.up).normalized();
-    screenUp    = screenRight.cross3(centralRay).normalized();
-    // std::cout << screenRight << "\n" << screenUp << "\n";
-
-    double fov  = camera.fov * (std::numbers::pi / 180);
-    double step = std::tan(fov / 2) * centralRay.norm() / (width / 2);
+    screenRight                = centralRay.cross3(camera.up).normalized();
+    screenUp                   = screenRight.cross3(centralRay).normalized();
+    double fov                 = camera.fov * (std::numbers::pi / 180);
+    double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
