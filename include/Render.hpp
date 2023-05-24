@@ -70,7 +70,7 @@ void Render::renderImage(RenderMode mode, int width, int height, std::string pat
         break;
 
     case RenderMode::SIMD:
-        renderImageSIMDSpheres<256,8>(width, height, path);
+        renderImageSIMDSpheres<1024,8>(width, height, path);
         break;
 
     default:
@@ -248,6 +248,9 @@ std::tuple<Eigen::Matrix<double,4,noOfSpheres>,Eigen::Vector<double,noOfSpheres>
 template<int batch_size>
 inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersection(Ray ray,Eigen::Matrix<double,4,batch_size>& centers, Eigen::Vector<double,batch_size>& radius2 )
 {
+    static const Eigen::Vector<double,batch_size> zeros = Eigen::Vector<double,batch_size>::Zero();
+    static const Eigen::Vector<double,batch_size> inf = Eigen::Vector<double,batch_size>::Constant(std::numeric_limits< double >::max());
+
     centers.colwise() -= ray.point;     //centers is -diff
     Eigen::Vector<double,batch_size> a;
     double a_scalar = ray.dir.squaredNorm();
@@ -256,11 +259,13 @@ inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersect
     Eigen::Vector<double,batch_size> b = -2* (centers.transpose()*ray.dir);
     Eigen::Vector<double,batch_size> delta = b.cwiseProduct(b) - 4 * a.cwiseProduct(c);
 
-    Eigen::Vector<double,batch_size> mask;
-    for (size_t i = 0; i < batch_size; i++)
-    {
-        mask(i) = delta(i) < 0 ? std::numeric_limits< double >::max() : 0;
-    }
+    // Eigen::Vector<double,batch_size> mask;
+    // for (size_t i = 0; i < batch_size; i++)
+    // {
+    //     mask(i) = delta(i) < 0 ? std::numeric_limits< double >::max() : 0;
+    // }
+
+    Eigen::Vector<double,batch_size> mask = (delta.array() < 0.0).select(inf,zeros);
 
     Eigen::Vector<double,batch_size> delta_sqrt = delta.cwiseAbs().cwiseSqrt();
     Eigen::Vector<double,batch_size> s1 = (-b - delta_sqrt) / (2* a_scalar);
@@ -284,12 +289,11 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
     // Eigen::Matrix<double,4,noOfSpheres> centers;
     // Eigen::Vector<double,noOfSpheres> radius2;
     auto && [centers, radius2] = prepareSpheresMatrix<noOfSpheres>(objs);
 
-
+    auto t_start = std::chrono::high_resolution_clock::now();
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
             tbb::parallel_for(tbb::blocked_range< int >(0, height), [&](tbb::blocked_range< int > r2) {

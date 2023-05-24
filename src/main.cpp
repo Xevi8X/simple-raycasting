@@ -86,7 +86,7 @@ void generateSpheres(Obj3D** objs, size_t noOfSpheres)
 
 int main(int argc, char** argv)
 {
-    constexpr size_t noOfSpheres = 256;
+    constexpr size_t noOfSpheres = 1024;
     constexpr size_t noOfPlanes  = 0;
 
     Params param = parseArgs(argc, argv);
