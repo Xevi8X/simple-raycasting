@@ -122,15 +122,22 @@ int main(int argc, char** argv)
         for (size_t i = 0; i < 60; i++)
         {
             double fi        = i / 5.0;
-            cam.pos          = Eigen::Vector4d(10.0 * cos(fi), 10.0 * sin(fi), 5.0, 1.0);
-            cam.screenCenter = Eigen::Vector4d(9.0 * cos(fi), 9.0 * sin(fi), 4.5, 1.0);
-            render.renderImage(param.mode, param.width, param.height, "show/" + std::to_string(i) + ".bmp");
+            cam.pos          = Eigen::Vector4d(100.0 * cos(fi), 100.0 * sin(fi), 30.0, 1.0);
+            cam.screenCenter = Eigen::Vector4d(90.0 * cos(fi), 90.0 * sin(fi), 25.0, 1.0);
+            render.prepare(param.width, param.height);
+            render.renderImage(param.mode);
+            render.saveTo( "show/" + std::to_string(i) + ".bmp");
         }
-        system("ffmpeg -f image2 -i ./show/%d.bmp ./show/out.mov");
+        if(system("ffmpeg -f image2 -i ./show/%d.bmp ./show/out.mov"))
+        {
+            std::cerr << "FFMPEG return " << errno << std::endl;
+        }
     }
     else
     {
-        render.renderImage(param.mode, param.width, param.height, param.path);
+        render.prepare(param.width, param.height);
+        render.renderImage(param.mode);
+        render.saveTo(param.path);
     }
 
     std::cout << "Free mem" << std::endl;

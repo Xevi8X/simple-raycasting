@@ -15,6 +15,8 @@
 #include <tuple>
 #include <chrono>
 
+constexpr int sphereNo = 1024;
+
 enum struct RenderMode
 {
     CPU,
@@ -31,9 +33,10 @@ class Render
 
 public:
     Render(Camera& cam, std::vector< Light >& lights, Obj3D** objects, size_t noOfObjects)
-        : camera{cam}, objs{objects}, lights{lights}, noOfObjs{noOfObjects}
-    {}
-    inline void renderImage(RenderMode mode, int width, int height, std::string path);
+        : camera{cam}, objs{objects}, lights{lights}, noOfObjs{noOfObjects} {}
+    void prepare(int width, int height);
+    void renderImage(RenderMode mode, int batch_size = 8);
+    void saveTo(std::string path) {img.saveToBmp(path);}
 
 private:
     inline static double myCos(Eigen::Vector4d a, Eigen::Vector4d b, bool cut = true);
@@ -43,39 +46,88 @@ private:
     //                                std::vector< Light >& lights);
     inline static Color
     calcColor(Eigen::Vector4d sectionPoint, Eigen::Vector4d cameraPos, Obj3D* Obj, std::vector< Light >& lights);
-    inline void renderImageCPU(int width, int height, std::string path);
-    inline void renderImageTBB(int width, int height, std::string path);
+    void renderImageCPU();
+    void renderImageTBB();
 
     template<int noOfSpheres, int batch_size>
-    inline void renderImageSIMDSpheres(int width, int height, std::string path);
+    void renderImageSIMDSpheres();
 
     Camera&               camera;
     Obj3D**               objs;
-    size_t                noOfObjs;
+    const size_t                noOfObjs;
     std::vector< Light >& lights;
+    Image img;
+    int width, height;
 
     const Color skyColor = {135, 206, 235};
+    Eigen::Matrix<double,4,sphereNo> centers;
+    Eigen::Vector<double,sphereNo> radius2;
+
 };
 
-void Render::renderImage(RenderMode mode, int width, int height, std::string path)
+template<int noOfSpheres>
+std::tuple<Eigen::Matrix<double,4,noOfSpheres>,Eigen::Vector<double,noOfSpheres>> prepareSpheresMatrix(Obj3D **objs)
+{
+    Eigen::Matrix<double,4,noOfSpheres> centers;
+    Eigen::Vector<double,noOfSpheres> radius2;
+    for (size_t i = 0; i < noOfSpheres; i++)
+    {
+        radius2(i) = std::pow((dynamic_cast<Sphere*>(objs[i]))->getRadius(),2);
+        centers.col(i) = dynamic_cast<Sphere*>(objs[i])->getCenter();
+    }
+    return {centers,radius2};
+}
+
+void Render::prepare(int width_, int height_)
+{
+    width = width_;
+    height = height_;
+    img = std::move(Image(width, height));
+    std::tie(centers, radius2) = prepareSpheresMatrix<sphereNo>(objs);
+}
+
+void Render::renderImage(RenderMode mode, int batch_size)
 {
     switch (mode)
     {
     case RenderMode::CPU:
-        renderImageCPU(width, height, path);
+        renderImageCPU();
         break;
 
     case RenderMode::TBB:
-        renderImageTBB(width, height, path);
+        renderImageTBB();
         break;
 
     case RenderMode::SIMD:
-        renderImageSIMDSpheres<1024,8>(width, height, path);
+        switch (batch_size)
+        {
+        case 1:
+            renderImageSIMDSpheres<sphereNo,1>();
+            break;
+        case 2:
+            renderImageSIMDSpheres<sphereNo,2>();
+            break;
+        case 4:
+            renderImageSIMDSpheres<sphereNo,4>();
+            break;
+        case 8:
+            renderImageSIMDSpheres<sphereNo,8>();
+            break;
+        case 16:
+            renderImageSIMDSpheres<sphereNo,16>();
+            break;
+        case 32:
+            renderImageSIMDSpheres<sphereNo,32>();
+            break;
+        default:
+            std::cerr << "Invalid batch size" << std::endl;
+            return;
+        }
         break;
 
     default:
         std::cerr << "Not implemented yet" << std::endl;
-        break;
+        return;
     }
 }
 
@@ -126,9 +178,8 @@ Color Render::calcColor(Eigen::Vector4d       sectionPoint,
     return c;
 }
 
-void Render::renderImageCPU(int width, int height, std::string path)
+void Render::renderImageCPU()
 {
-    Image           img(width, height);
     Eigen::Vector4d screenUp, screenRight;
     Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
     screenRight                = centralRay.cross3(camera.up).normalized();
@@ -136,7 +187,7 @@ void Render::renderImageCPU(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
+    //auto t_start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < width; i++)
         for (int j = 0; j < height; j++)
         {
@@ -171,15 +222,14 @@ void Render::renderImageCPU(int width, int height, std::string path)
                 img.setPixel(i, j, skyColor);
             }
         }
-    auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "Time CPU: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
+    //auto t_end = std::chrono::high_resolution_clock::now();
+    //std::cout << "Time CPU: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
-    img.saveToBmp(path);
+    //img.saveToBmp(path);
 }
 
-void Render::renderImageTBB(int width, int height, std::string path)
+void Render::renderImageTBB()
 {
-    Image           img(width, height);
     Eigen::Vector4d screenUp, screenRight;
     Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
     screenRight                = centralRay.cross3(camera.up).normalized();
@@ -187,7 +237,7 @@ void Render::renderImageTBB(int width, int height, std::string path)
     double fov                 = camera.fov * (std::numbers::pi / 180);
     double step                = std::tan(fov / 2) * centralRay.norm() / (width / 2);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
+    //auto t_start = std::chrono::high_resolution_clock::now();
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
             tbb::parallel_for(tbb::blocked_range< int >(0, height), [&](tbb::blocked_range< int > r2) {
@@ -226,24 +276,13 @@ void Render::renderImageTBB(int width, int height, std::string path)
                 }
             });
     });
-    auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "Time TBB: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
+    //auto t_end = std::chrono::high_resolution_clock::now();
+    //std::cout << "Time TBB: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
-    img.saveToBmp(path);
+    //img.saveToBmp(path);
 }
 
-template<int noOfSpheres>
-std::tuple<Eigen::Matrix<double,4,noOfSpheres>,Eigen::Vector<double,noOfSpheres>> prepareSpheresMatrix(Obj3D **objs)
-{
-    Eigen::Matrix<double,4,noOfSpheres> centers;
-    Eigen::Vector<double,noOfSpheres> radius2;
-    for (size_t i = 0; i < noOfSpheres; i++)
-    {
-        radius2(i) = std::pow((dynamic_cast<Sphere*>(objs[i]))->getRadius(),2);
-        centers.col(i) = dynamic_cast<Sphere*>(objs[i])->getCenter();
-    }
-    return {centers,radius2};
-}
+
 
 template<int batch_size>
 inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersection(Ray ray,Eigen::Matrix<double,4,batch_size>& centers, Eigen::Vector<double,batch_size>& radius2 )
@@ -279,9 +318,8 @@ inline std::tuple< double, std::optional< Eigen::Vector4d >, int> batchIntersect
 }
 
 template<int noOfSpheres, int batch_size>
-void Render::renderImageSIMDSpheres(int width, int height, std::string path)
+void Render::renderImageSIMDSpheres()
 {
-    Image           img(width, height);
     Eigen::Vector4d screenUp, screenRight;
     Eigen::Vector4d centralRay = camera.screenCenter - camera.pos;
     screenRight                = centralRay.cross3(camera.up).normalized();
@@ -291,9 +329,9 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
 
     // Eigen::Matrix<double,4,noOfSpheres> centers;
     // Eigen::Vector<double,noOfSpheres> radius2;
-    auto && [centers, radius2] = prepareSpheresMatrix<noOfSpheres>(objs);
+    // auto && [centers, radius2] = prepareSpheresMatrix<noOfSpheres>(objs);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
+    //auto t_start = std::chrono::high_resolution_clock::now();
     tbb::parallel_for(tbb::blocked_range< int >(0, width), [&](tbb::blocked_range< int > r) {
         for (int i = r.begin(); i < r.end(); ++i)
             tbb::parallel_for(tbb::blocked_range< int >(0, height), [&](tbb::blocked_range< int > r2) {
@@ -333,8 +371,8 @@ void Render::renderImageSIMDSpheres(int width, int height, std::string path)
                 }
             });
     });
-    auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "Time SIMD: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
+    //auto t_end = std::chrono::high_resolution_clock::now();
+    //std::cout << "Time SIMD: " << std::chrono::duration<double, std::milli>(t_end-t_start).count() << "ms" << std::endl;
 
-    img.saveToBmp(path);
+    //img.saveToBmp(path);
 }

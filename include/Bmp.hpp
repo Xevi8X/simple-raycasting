@@ -9,6 +9,7 @@
 class Image
 {
 public:
+    inline Image() = default;
     inline Image(std::size_t width, std::size_t height)
         : w_{width}, h_{height}, canvas_{std::make_unique_for_overwrite< Pixel[] >(width * height)}
     {}
