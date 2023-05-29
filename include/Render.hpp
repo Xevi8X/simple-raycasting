@@ -119,6 +119,12 @@ void Render::renderImage(RenderMode mode, int batch_size)
         case 32:
             renderImageSIMDSpheres<sphereNo,32>();
             break;
+        case 64:
+            renderImageSIMDSpheres<sphereNo,64>();
+            break;
+        case 128:
+            renderImageSIMDSpheres<sphereNo,128>();
+            break;
         default:
             std::cerr << "Invalid batch size" << std::endl;
             return;
